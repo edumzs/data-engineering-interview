@@ -101,29 +101,6 @@ def show_login_page():
     elif authentication_status == None:
         st.warning('⚠️ Please enter your username and password')
         
-        # Show user guidance
-        st.markdown("---")
-        st.markdown("### 👤 Available Login Options")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.info("""
-            **👨‍💻 For Candidates:**
-            - Username: `candidate_demo`
-            - Password: `candidate123`
-            - Complete SQL challenges
-            - Interactive code editor
-            """)
-        
-        with col2:
-            st.info("""
-            **👩‍🏫 For Interviewers:**
-            - Username: `interviewer`
-            - Password: `kajabi2024`
-            - Review submitted queries
-            - Export evaluation reports
-            """)
     
     elif authentication_status:
         # Successful login - determine user role and set session state
@@ -140,22 +117,6 @@ def show_login_page():
         st.session_state.login_time = datetime.now()
         st.rerun()
     
-    # Show system information
-    st.markdown("---")
-    st.markdown("### 📋 System Overview")
-    st.markdown("""
-    - **Secure authentication**: Enterprise-grade login system
-    - **Real-time logging**: All queries are automatically saved
-    - **Session tracking**: Unique session IDs for each candidate
-    - **Comprehensive evaluation**: Full query history with timestamps
-    - **Export functionality**: CSV reports for documentation
-    """)
-    
-    st.markdown("---")
-    st.info("""
-    ℹ️ **Note**: This app uses secure authentication with hashed passwords and JWT cookies. 
-    Query data is shared across all sessions but resets when the app restarts.
-    """)
 
 def logout():
     """Handle logout using authenticator"""
