@@ -1,0 +1,36 @@
+# Streamlit
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Local configuration files with sensitive data
+config.yaml
+.streamlit/secrets.toml
+*.toml
+
+# Environment variables
+.env
+.env.local
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Python virtual environment
+venv/
+env/
+.venv/
+
+# Logs
+*.log
+*.md
+*.sql
+*.duckdb.wal
+*.duckdb
+*.sh
