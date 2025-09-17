@@ -36,7 +36,8 @@ def load_config():
                 credentials['usernames'][username] = {
                     'email': user_data['email'],
                     'name': user_data['name'],
-                    'password': user_data['password']
+                    'password': user_data['password'],
+                    'role': user_data.get('role', 'candidate')  # Default to candidate if no role
                 }
         
         cookie = {}
@@ -64,6 +65,18 @@ def load_config():
             st.stop()
 
 # Initialize authenticator
+def get_user_role_and_setup_session(username):
+    """Get user role from config and setup session state"""
+    config = load_config()
+    user_role = config['credentials']['usernames'].get(username, {}).get('role', 'candidate')
+    st.session_state.user_role = user_role
+    
+    # Set candidate ID if user is a candidate
+    if user_role == "candidate":
+        st.session_state.candidate_id = str(uuid.uuid4())[:8]
+    
+    return user_role
+
 def get_authenticator():
     """Get a fresh authenticator instance"""
     config = load_config()
@@ -103,31 +116,26 @@ def show_login_page():
         
     
     elif authentication_status:
-        # Successful login - determine user role and set session state
-        if username and (username.startswith('candidate') or username == 'candidate_demo'):
-            st.session_state.user_role = "candidate"
-            st.session_state.candidate_id = str(uuid.uuid4())[:8]
-        elif username == 'interviewer':
-            st.session_state.user_role = "interviewer"
-        else:
-            # Default to candidate for any other users
-            st.session_state.user_role = "candidate" 
-            st.session_state.candidate_id = str(uuid.uuid4())[:8]
-        
+        # Successful login - determine user role from configuration
+        get_user_role_and_setup_session(username)
         st.session_state.login_time = datetime.now()
         st.rerun()
     
 
-def logout():
-    """Handle logout using authenticator"""
+def handle_logout(button_text='Logout', location='main'):
+    """Handle logout with customizable button text and location"""
     authenticator = get_authenticator()
-    authenticator.logout('Logout', 'main')
+    authenticator.logout(button_text, location)
     
     # Clear custom session state
     keys_to_clear = ['user_role', 'candidate_id', 'login_time']
     for key in keys_to_clear:
         if key in st.session_state:
             del st.session_state[key]
+
+def logout():
+    """Handle logout using authenticator"""
+    handle_logout('Logout', 'main')
     
     st.rerun()
 
@@ -484,9 +492,8 @@ def show_interviewer_interface():
     with st.sidebar:
         st.markdown("### Navigation")
         st.markdown("**Interview Evaluation Tools**")
-        # Get fresh authenticator for logout
-        authenticator = get_authenticator()
-        authenticator.logout('🚪 Logout', 'sidebar')
+        # Logout button
+        handle_logout('🚪 Logout', 'sidebar')
     
     # Get shared database connection
     conn = get_database_connection()
@@ -718,17 +725,10 @@ def show_candidate_interface():
         st.markdown("---")
         st.markdown(f"**Welcome:** {st.session_state.get('name', 'Candidate')}")
         st.markdown(f"**Session ID:** `{st.session_state.candidate_id}`")
-        st.markdown("**💡 Quick Tips:**")
-        st.markdown("• Schema reference is available in SQL Challenges")
-        st.markdown("• Start with Basic challenges")  
-        st.markdown("• Practice with the SQL challenges")
-        st.markdown("• All queries are automatically logged")
-        st.markdown("• Focus on query readability and efficiency")
         
         st.markdown("---")
-        # Get fresh authenticator for logout
-        authenticator = get_authenticator()
-        authenticator.logout('🚪 End Interview', 'sidebar')
+        # End interview button
+        handle_logout('🚪 End Interview', 'sidebar')
     
     # Page handling for candidates
     if page == "Overview":
@@ -754,8 +754,6 @@ def show_candidate_interface():
         """)
         
     elif page == "Database Schema":
-        display_schema()
-        
         # Show sample data
         st.subheader("📊 Sample Data Preview")
         table_to_show = st.selectbox(
@@ -771,162 +769,130 @@ def show_candidate_interface():
     elif page == "SQL Challenges":
         st.subheader("🎯 SQL Challenges")
         
-        # Create two columns - schema reference on the left, challenge on the right
-        col1, col2 = st.columns([1, 2])
+        # Database Schema Reference (full width)
+        st.subheader("📋 Database Schema Reference")
         
-        with col1:
-            st.subheader("📋 Database Schema Reference")
-            
-            # Show schema in an expandable sidebar-like format
-            schema_info = {
-                'customers': {
-                    'description': 'Customer information and account details',
-                    'columns': [
-                        'customer_id (INTEGER)',
-                        'email (VARCHAR)', 
-                        'signup_date (DATE)',
-                        'subscription_tier (VARCHAR)',
-                        'company_size (VARCHAR)',
-                        'industry (VARCHAR)',
-                        'is_active (BOOLEAN)'
-                    ]
-                },
-                'orders': {
-                    'description': 'Customer purchase history',
-                    'columns': [
-                        'order_id (INTEGER)',
-                        'customer_id (INTEGER)',
-                        'order_date (DATE)',
-                        'amount (DECIMAL)',
-                        'status (VARCHAR)',
-                        'product_category (VARCHAR)'
-                    ]
-                },
-                'support_tickets': {
-                    'description': 'Customer support interactions',
-                    'columns': [
-                        'ticket_id (INTEGER)',
-                        'customer_id (INTEGER)',
-                        'created_date (DATETIME)',
-                        'category (VARCHAR)',
-                        'priority (VARCHAR)',
-                        'status (VARCHAR)',
-                        'resolution_time_hours (INTEGER)',
-                        'satisfaction_score (INTEGER)'
-                    ]
-                },
-                'product_usage': {
-                    'description': 'Daily product usage metrics',
-                    'columns': [
-                        'customer_id (INTEGER)',
-                        'usage_date (DATE)',
-                        'sessions (INTEGER)',
-                        'page_views (INTEGER)',
-                        'time_spent_minutes (INTEGER)',
-                        'feature_used (VARCHAR)'
-                    ]
-                },
-                'customer_satisfaction': {
-                    'description': 'Customer satisfaction survey responses',
-                    'columns': [
-                        'survey_id (INTEGER)',
-                        'customer_id (INTEGER)',
-                        'survey_date (DATE)',
-                        'nps_score (INTEGER)',
-                        'product_satisfaction (INTEGER)',
-                        'support_satisfaction (INTEGER)',
-                        'likelihood_to_recommend (INTEGER)',
-                        'overall_satisfaction (INTEGER)'
-                    ]
-                }
+        # Show schema in an expandable format
+        schema_info = {
+            'customers': {
+                'description': 'Customer information and account details',
+                'columns': [
+                    'customer_id (INTEGER): Unique customer identifier',
+                    'email (VARCHAR): Customer email address',
+                    'signup_date (DATE): Date customer signed up',
+                    'subscription_tier (VARCHAR): basic, pro, or enterprise',
+                    'company_size (VARCHAR): Company size category',
+                    'industry (VARCHAR): Customer industry',
+                    'is_active (BOOLEAN): Whether customer is currently active'
+                ]
+            },
+            'orders': {
+                'description': 'Customer purchase history',
+                'columns': [
+                    'order_id (INTEGER): Unique order identifier',
+                    'customer_id (INTEGER): Foreign key to customers',
+                    'order_date (DATE): Date order was placed',
+                    'amount (DECIMAL): Order amount in USD',
+                    'status (VARCHAR): completed, cancelled, or refunded',
+                    'product_category (VARCHAR): Type of product purchased'
+                ]
+            },
+            'support_tickets': {
+                'description': 'Customer support interactions',
+                'columns': [
+                    'ticket_id (INTEGER): Unique ticket identifier',
+                    'customer_id (INTEGER): Foreign key to customers',
+                    'created_date (DATETIME): When ticket was created',
+                    'category (VARCHAR): technical, billing, feature_request, or general',
+                    'priority (VARCHAR): low, medium, or high',
+                    'status (VARCHAR): open, in_progress, resolved, or closed',
+                    'resolution_time_hours (INTEGER): Time to resolve (NULL if unresolved)',
+                    'satisfaction_score (INTEGER): 1-5 rating (NULL if not provided)'
+                ]
+            },
+            'product_usage': {
+                'description': 'Daily product usage metrics',
+                'columns': [
+                    'customer_id (INTEGER): Foreign key to customers',
+                    'usage_date (DATE): Date of usage',
+                    'sessions (INTEGER): Number of user sessions',
+                    'page_views (INTEGER): Number of page views',
+                    'time_spent_minutes (INTEGER): Total time spent in product',
+                    'feature_used (VARCHAR): Primary feature used that day'
+                ]
+            },
+            'customer_satisfaction': {
+                'description': 'Customer satisfaction survey responses',
+                'columns': [
+                    'survey_id (INTEGER): Unique survey response identifier',
+                    'customer_id (INTEGER): Foreign key to customers',
+                    'survey_date (DATE): Date survey was completed',
+                    'nps_score (INTEGER): Net Promoter Score (0-10)',
+                    'product_satisfaction (INTEGER): Product satisfaction (1-5)',
+                    'support_satisfaction (INTEGER): Support satisfaction (1-5)',
+                    'likelihood_to_recommend (INTEGER): Likelihood to recommend (1-5)',
+                    'overall_satisfaction (INTEGER): Overall satisfaction (1-5)'
+                ]
             }
-            
-            for table_name, table_info in schema_info.items():
-                with st.expander(f"**{table_name.upper()}**", expanded=True):
-                    st.caption(table_info['description'])
-                    for column in table_info['columns']:
-                        st.text(f"• {column}")
+        }
         
-        with col2:
-            challenges = get_sql_challenges()
-            
-            # Challenge selection
-            selected_challenge = st.selectbox(
-                "Select a challenge:",
-                challenges,
-                format_func=lambda x: f"{x['title']}"
-            )
+        for table_name, table_info in schema_info.items():
+            with st.expander(f"**{table_name.upper()}**", expanded=False):
+                st.caption(table_info['description'])
+                for column in table_info['columns']:
+                    st.text(f"• {column}")
         
-            st.markdown(f"### {selected_challenge['title']}")
-            st.markdown(f"**Description:** {selected_challenge['description']}")
-            
-            if st.button("💡 Show Hint"):
-                st.info(f"**Hint:** {selected_challenge['hint']}")
-            
-            st.markdown("**Expected columns:**")
-            st.write(", ".join(selected_challenge['expected_columns']))
-            
-            # SQL Editor
-            st.markdown("### Write your SQL query:")
-            user_query = st_ace(
-                language='sql',
-                theme='monokai',
-                key=f"sql_editor_{selected_challenge['id']}",
-                height=200,
-                placeholder="-- Write your SQL query here\nSELECT ... FROM ..."
-            )
-            
-            if st.button("▶️ Execute Query"):
-                if user_query.strip():
-                    result, error = execute_query(conn, user_query)
-                    
-                    if error:
-                        st.error(f"❌ Query Error: {error}")
-                        # Log failed query
-                        log_query(
-                            conn=conn,
-                            challenge_id=selected_challenge['id'],
-                            challenge_title=selected_challenge['title'],
-                            query_text=user_query,
-                            execution_success=False,
-                            error_message=error,
-                            result_rows=0,
-                            validation_passed=False,
-                            points_earned=0
-                        )
-                    else:
-                        st.success("✅ Query executed successfully!")
-                        
-                        # Validate result structure
-                        is_valid, validation_message = validate_query_result(result, selected_challenge['expected_columns'])
-                        result_rows = len(result) if result is not None else 0
-                        
-                        if is_valid:
-                            st.success(f"🎉 {validation_message}")
-                            points_earned = selected_challenge['points']
-                        else:
-                            st.warning(f"⚠️ {validation_message}")
-                            points_earned = 0
-                        
-                        # Log successful query
-                        log_query(
-                            conn=conn,
-                            challenge_id=selected_challenge['id'],
-                            challenge_title=selected_challenge['title'],
-                            query_text=user_query,
-                            execution_success=True,
-                            error_message=None,
-                            result_rows=result_rows,
-                            validation_passed=is_valid,
-                            points_earned=points_earned
-                        )
-                        
-                        # Display results
-                        st.markdown("### Query Results:")
-                        st.dataframe(result)
-                        st.info(f"Returned {len(result)} rows")
+        # SQL Query Editor (full width, below schema)
+        st.markdown("### Write your SQL query:")
+        user_query = st_ace(
+            language='sql',
+            theme='monokai',
+            key="sql_editor_custom",
+            height=300,
+            placeholder="-- Write your SQL query here\nSELECT ... FROM ..."
+        )
+        
+        if st.button("▶️ Execute Query"):
+            if user_query.strip():
+                result, error = execute_query(conn, user_query)
+                
+                if error:
+                    st.error(f"❌ Query Error: {error}")
+                    # Log failed query
+                    log_query(
+                        conn=conn,
+                        challenge_id="custom_query",
+                        challenge_title="Custom SQL Query",
+                        query_text=user_query,
+                        execution_success=False,
+                        error_message=error,
+                        result_rows=0,
+                        validation_passed=False,
+                        points_earned=0
+                    )
                 else:
-                    st.warning("Please enter a SQL query")
+                    st.success("✅ Query executed successfully!")
+                    result_rows = len(result) if result is not None else 0
+                    
+                    # Log successful query
+                    log_query(
+                        conn=conn,
+                        challenge_id="custom_query",
+                        challenge_title="Custom SQL Query",
+                        query_text=user_query,
+                        execution_success=True,
+                        error_message=None,
+                        result_rows=result_rows,
+                        validation_passed=True,
+                        points_earned=0
+                    )
+                    
+                    # Display results
+                    st.markdown("### Query Results:")
+                    st.dataframe(result)
+                    st.info(f"Returned {len(result)} rows")
+            else:
+                st.warning("Please enter a SQL query")
                 
 
 def main():
@@ -945,13 +911,9 @@ def main():
     elif authentication_status == True:
         # User is authenticated, check if role is set
         if 'user_role' not in st.session_state:
-            # Determine role based on username (fallback)
+            # Get role from configuration based on username
             username = st.session_state.get("username", "")
-            if username == 'interviewer':
-                st.session_state.user_role = "interviewer"
-            else:
-                st.session_state.user_role = "candidate"
-                st.session_state.candidate_id = str(uuid.uuid4())[:8]
+            get_user_role_and_setup_session(username)
         
         # Route based on user role
         if st.session_state.user_role == "candidate":
@@ -960,9 +922,8 @@ def main():
             show_interviewer_interface()
         else:
             st.error("Invalid user role. Please login again.")
-            # Get fresh authenticator for logout
-            authenticator = get_authenticator()
-            authenticator.logout('Logout', 'main')
+            # Handle logout for invalid role
+            handle_logout('Logout', 'main')
     else:
         show_login_page()
 
