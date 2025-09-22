@@ -488,16 +488,27 @@ def show_interviewer_interface():
     st.title("👩‍🏫 Interviewer Dashboard")
     st.subheader(f"Welcome, {st.session_state.get('name', 'Interviewer')}")
     
-    # Logout button in sidebar
+    # Navigation sidebar
     with st.sidebar:
         st.markdown("### Navigation")
-        st.markdown("**Interview Evaluation Tools**")
+        page = st.selectbox(
+            "Choose a section:",
+            ["Query Review", "Upload Data"]
+        )
+        st.markdown("---")
         # Logout button
         handle_logout('🚪 Logout', 'sidebar')
     
     # Get shared database connection
     conn = get_database_connection()
     
+    if page == "Query Review":
+        show_query_review_section(conn)
+    elif page == "Upload Data":
+        show_upload_data_section(conn)
+
+def show_query_review_section(conn):
+    """Display query review and analysis section"""
     # Check if there are any query logs
     try:
         total_logs = conn.execute("SELECT COUNT(*) FROM query_log").fetchone()[0]
@@ -556,6 +567,8 @@ def show_interviewer_interface():
             with col4:
                 avg_success = sum(s[8] for s in sessions) / len(sessions)
                 st.metric("Avg Success Rate", f"{avg_success:.1f}%")
+        else:
+            st.info("No interview sessions found yet.")
     
     with tab2:
         st.subheader("🔍 Candidate Deep Dive")
@@ -572,139 +585,343 @@ def show_interviewer_interface():
             selected_session_display = st.selectbox("Select candidate for detailed review:", session_options)
             selected_session_id = selected_session_display.split(' - ')[0]
             
-            # Detailed session analysis
-            if selected_session_id:
-                session_data = next(s for s in sessions if s[0] == selected_session_id)
-                
-                st.markdown(f"### 📊 Analysis: Candidate `{selected_session_id}`")
-                
-                # Session overview metrics
-                col1, col2, col3, col4 = st.columns(4)
-                with col1:
-                    st.metric("Total Queries", session_data[3])
-                    st.metric("Success Rate", f"{session_data[8]}%")
-                with col2:
-                    st.metric("Valid Results", session_data[5])
-                    st.metric("Total Points", session_data[6])
-                with col3:
-                    st.metric("Challenges Tried", session_data[7])
-                    duration = session_data[2] - session_data[1]
-                    st.metric("Duration", f"{int(duration.total_seconds() / 60)} min")
-                with col4:
-                    st.metric("Started", session_data[1].strftime('%H:%M'))
-                    st.metric("Ended", session_data[2].strftime('%H:%M'))
-                
-                # Challenge performance breakdown
-                challenge_stats = conn.execute("""
-                    SELECT 
-                        challenge_title,
-                        COUNT(*) as attempts,
-                        COUNT(CASE WHEN execution_success THEN 1 END) as successful,
-                        COUNT(CASE WHEN validation_passed THEN 1 END) as valid,
-                        MAX(points_earned) as max_points
-                    FROM query_log 
-                    WHERE session_id = ? AND challenge_id != 'free_query'
-                    GROUP BY challenge_title
-                    ORDER BY MAX(timestamp)
-                """, [selected_session_id]).fetchall()
-                
-                if challenge_stats:
-                    st.subheader("📈 Challenge Performance")
-                    challenge_df = pd.DataFrame(challenge_stats, columns=[
-                        'Challenge', 'Attempts', 'Successful', 'Valid', 'Max Points'
-                    ])
-                    st.dataframe(challenge_df, use_container_width=True)
-                
-                # Individual query review
-                st.subheader("📝 Complete Query History")
-                queries = conn.execute("""
-                    SELECT 
-                        log_id, timestamp, challenge_title, query_text, execution_success, 
-                        error_message, result_rows, validation_passed, points_earned
-                    FROM query_log 
-                    WHERE session_id = ? 
-                    ORDER BY timestamp ASC
-                """, [selected_session_id]).fetchall()
-                
-                for i, query in enumerate(queries, 1):
-                    # Determine query status styling
-                    if query[4]:  # execution success
-                        if query[7]:  # validation passed
-                            status_icon = "✅"
-                        else:
-                            status_icon = "⚠️"
-                    else:
-                        status_icon = "❌"
-                    
-                    # Create expandable query section
-                    header = f"Query #{i}: {query[2]} - {query[1].strftime('%H:%M:%S')} {status_icon}"
-                    
-                    with st.expander(header, expanded=False):
-                        # Query metadata
-                        col1, col2, col3, col4 = st.columns(4)
-                        with col1:
-                            st.markdown(f"**Status:** {'Success' if query[4] else 'Failed'}")
-                        with col2:
-                            st.markdown(f"**Validation:** {'Valid' if query[7] else 'Invalid'}")
-                        with col3:
-                            st.markdown(f"**Points:** {query[8]}")
-                        with col4:
-                            if query[6] is not None:
-                                st.markdown(f"**Rows:** {query[6]}")
-                        
-                        # Query text with syntax highlighting
-                        st.markdown("**SQL Query:**")
-                        st.code(query[3], language='sql')
-                        
-                        # Error or success information
-                        if not query[4]:  # Failed execution
-                            st.error(f"**Error:** {query[5]}")
-                        else:
-                            if query[6] is not None:
-                                st.success(f"Returned {query[6]} rows")
-                            if not query[7]:  # Invalid result structure
-                                st.warning("Query executed but result structure doesn't match expected columns")
+            # Detailed session analysis would go here
+            st.info("Detailed session analysis coming soon...")
+        else:
+            st.info("No sessions available for detailed review.")
     
     with tab3:
-        st.subheader("📤 Export Interview Data")
-        
-        col1, col2 = st.columns(2)
-        
-        with col1:
-            st.markdown("#### 📊 Session Summary")
-            if st.button("Download Session Summary CSV", use_container_width=True):
-                if sessions:
-                    sessions_df = pd.DataFrame(sessions, columns=[
-                        'Candidate_ID', 'Started', 'Ended', 'Total_Queries', 'Successful', 
-                        'Valid_Results', 'Points', 'Challenges', 'Success_Rate'
-                    ])
-                    csv = sessions_df.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download Summary",
-                        data=csv,
-                        file_name=f"interview_sessions_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv"
-                    )
-        
-        with col2:
-            st.markdown("#### 📝 All Queries")
-            if st.button("Download All Queries CSV", use_container_width=True):
-                all_queries = conn.execute("""
-                    SELECT session_id as candidate_id, timestamp, challenge_id, challenge_title, 
-                           query_text, execution_success, error_message, 
-                           result_rows, validation_passed, points_earned
-                    FROM query_log 
-                    ORDER BY session_id, timestamp
-                """).fetchdf()
+        st.subheader("📤 Export Data")
+        st.info("Export functionality coming soon...")
+
+def show_upload_data_section(conn):
+    """Display CSV upload section for interviewers"""
+    st.subheader("📤 Upload Data")
+    st.markdown("Upload CSV files to create new tables in the database for interview scenarios.")
+    
+    # Alert about CSV requirements
+    st.info("📋 **Important:** CSV files must have column headers in the first row for proper table creation.")
+    
+    # File uploader
+    uploaded_file = st.file_uploader(
+        "Choose a CSV file",
+        type=['csv'],
+        help="Upload a CSV file with headers in the first row"
+    )
+    
+    if uploaded_file is not None:
+        try:
+            # Read CSV file
+            df = pd.read_csv(uploaded_file)
+            
+            # Display preview
+            st.subheader("📋 Data Preview")
+            st.write(f"**File:** {uploaded_file.name}")
+            st.write(f"**Rows:** {len(df)}")
+            st.write(f"**Columns:** {len(df.columns)}")
+            
+            # Show first few rows
+            st.dataframe(df.head(10))
+            
+            # Table name input
+            table_name = st.text_input(
+                "Table Name",
+                value=uploaded_file.name.replace('.csv', '').lower().replace(' ', '_'),
+                help="Enter a name for the new table (will be created in DuckDB)"
+            )
+            
+            # Validate table name
+            if table_name and not table_name.replace('_', '').isalnum():
+                st.error("Table name should only contain letters, numbers, and underscores")
+                return
+            
+            if st.button("🚀 Create Table"):
+                if table_name:
+                    try:
+                        # Check if table already exists
+                        existing_tables = conn.execute("SHOW TABLES").fetchall()
+                        table_names = [table[0] for table in existing_tables]
+                        
+                        if table_name in table_names:
+                            if st.checkbox(f"Table '{table_name}' already exists. Replace it?"):
+                                conn.execute(f"DROP TABLE {table_name}")
+                            else:
+                                st.warning(f"Table '{table_name}' already exists. Check the box above to replace it.")
+                                return
+                        
+                        # Create table from DataFrame
+                        conn.register(table_name, df)
+                        
+                        # Verify table creation
+                        row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                        
+                        st.success(f"✅ Table '{table_name}' created successfully with {row_count} rows!")
+                        
+                        # Show table schema
+                        st.subheader("📊 Table Schema")
+                        schema_info = conn.execute(f"DESCRIBE {table_name}").fetchdf()
+                        st.dataframe(schema_info)
+                        
+                        # Show sample data from new table
+                        st.subheader("🔍 Sample Data")
+                        sample_data = conn.execute(f"SELECT * FROM {table_name} LIMIT 5").fetchdf()
+                        st.dataframe(sample_data)
+                        
+                    except Exception as e:
+                        st.error(f"❌ Error creating table: {str(e)}")
+                else:
+                    st.warning("Please enter a table name")
+                    
+        except Exception as e:
+            st.error(f"❌ Error reading CSV file: {str(e)}")
+            st.info("Make sure your CSV file has headers in the first row and is properly formatted.")
+    
+    # Show existing tables
+    st.subheader("📋 Current Database Tables")
+    try:
+        existing_tables = conn.execute("SHOW TABLES").fetchall()
+        if existing_tables:
+            table_names = [table[0] for table in existing_tables]
+            
+            # Create expandable sections for each table
+            for table_name in table_names:
+                # Check if this table should be expanded (due to drop confirmation, edit mode, or success message)
+                confirm_key = f"confirm_drop_{table_name}"
+                edit_key = f"edit_schema_{table_name}"
+                success_key = f"desc_saved_{table_name}"
+                is_expanded = (confirm_key in st.session_state and st.session_state[confirm_key]) or \
+                             (edit_key in st.session_state and st.session_state[edit_key]) or \
+                             (success_key in st.session_state and st.session_state[success_key])
                 
-                if not all_queries.empty:
-                    csv = all_queries.to_csv(index=False)
-                    st.download_button(
-                        label="📥 Download All Queries",
-                        data=csv,
-                        file_name=f"interview_queries_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-                        mime="text/csv"
-                    )
+                with st.expander(f"**{table_name.upper()}**", expanded=is_expanded):
+                    try:
+                        # Get row count
+                        row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                        st.write(f"**Rows:** {row_count}")
+                        
+                        # Get schema and add descriptions
+                        schema = conn.execute(f"DESCRIBE {table_name}").fetchdf()
+                        
+                        # Add description column
+                        desc_key = f"descriptions_{table_name}"
+                        descriptions = st.session_state.get(desc_key, {})
+                        
+                        # Add default descriptions for built-in tables
+                        default_table_descriptions = {
+                            'query_log': {
+                                'log_id': 'Unique identifier for each query submission',
+                                'timestamp': 'When the query was submitted',
+                                'challenge_id': 'Identifier of the SQL challenge',
+                                'challenge_title': 'Title of the SQL challenge',
+                                'query_text': 'The SQL query submitted by candidate',
+                                'execution_success': 'Whether the query executed without errors',
+                                'error_message': 'Error details if query failed',
+                                'result_rows': 'Number of rows returned by the query',
+                                'validation_passed': 'Whether query result matches expected structure',
+                                'points_earned': 'Points awarded for the query',
+                                'session_id': 'Candidate session identifier'
+                            },
+                            'customers': {
+                                'customer_id': 'Unique customer identifier',
+                                'email': 'Customer email address',
+                                'signup_date': 'Date customer signed up',
+                                'subscription_tier': 'basic, pro, or enterprise',
+                                'company_size': 'Company size category',
+                                'industry': 'Customer industry',
+                                'is_active': 'Whether customer is currently active'
+                            },
+                            'orders': {
+                                'order_id': 'Unique order identifier',
+                                'customer_id': 'Foreign key to customers',
+                                'order_date': 'Date order was placed',
+                                'amount': 'Order amount in USD',
+                                'status': 'completed, cancelled, or refunded',
+                                'product_category': 'Type of product purchased'
+                            },
+                            'support_tickets': {
+                                'ticket_id': 'Unique ticket identifier',
+                                'customer_id': 'Foreign key to customers',
+                                'created_date': 'When ticket was created',
+                                'category': 'technical, billing, feature_request, or general',
+                                'priority': 'low, medium, or high',
+                                'status': 'open, in_progress, resolved, or closed',
+                                'resolution_time_hours': 'Time to resolve (NULL if unresolved)',
+                                'satisfaction_score': '1-5 rating (NULL if not provided)'
+                            },
+                            'product_usage': {
+                                'customer_id': 'Foreign key to customers',
+                                'usage_date': 'Date of usage',
+                                'sessions': 'Number of user sessions',
+                                'page_views': 'Number of page views',
+                                'time_spent_minutes': 'Total time spent in product',
+                                'feature_used': 'Primary feature used that day'
+                            },
+                            'customer_satisfaction': {
+                                'survey_id': 'Unique survey response identifier',
+                                'customer_id': 'Foreign key to customers',
+                                'survey_date': 'Date survey was completed',
+                                'nps_score': 'Net Promoter Score (0-10)',
+                                'product_satisfaction': 'Product satisfaction (1-5)',
+                                'support_satisfaction': 'Support satisfaction (1-5)',
+                                'likelihood_to_recommend': 'Likelihood to recommend (1-5)',
+                                'overall_satisfaction': 'Overall satisfaction (1-5)'
+                            }
+                        }
+                        
+                        # Get default descriptions for this table if available (case-insensitive)
+                        table_name_lower = table_name.lower()
+                        if table_name_lower in default_table_descriptions:
+                            default_descriptions = default_table_descriptions[table_name_lower]
+                            # Merge with any custom descriptions, giving priority to custom ones
+                            descriptions = {**default_descriptions, **descriptions}
+                        else:
+                            # Debug: show which table name we're looking for
+                            st.write(f"Debug: Looking for '{table_name}' (lowercase: '{table_name_lower}') in default descriptions")
+                            st.write(f"Available keys: {list(default_table_descriptions.keys())}")
+                        
+                        # Create description column
+                        schema['description'] = schema['column_name'].apply(
+                            lambda col: descriptions.get(col, "")
+                        )
+                        
+                        st.write("**Schema:**")
+                        st.dataframe(schema, use_container_width=True)
+                        
+                        # Show sample data, edit schema, and drop table buttons
+                        col1, col2, col3 = st.columns(3)
+                        with col1:
+                            if st.button(f"Show sample data", key=f"sample_{table_name}"):
+                                sample = conn.execute(f"SELECT * FROM {table_name} LIMIT 5").fetchdf()
+                                st.dataframe(sample, use_container_width=True)
+                        
+                        with col2:
+                            # Don't allow editing the query_log table
+                            if table_name != 'query_log':
+                                if st.button(f"✏️ Edit schema", key=f"edit_{table_name}", type="secondary"):
+                                    # Use session state to track edit mode
+                                    edit_key = f"edit_schema_{table_name}"
+                                    if edit_key not in st.session_state:
+                                        st.session_state[edit_key] = False
+                                    
+                                    if not st.session_state[edit_key]:
+                                        st.session_state[edit_key] = True
+                                        st.rerun()
+                        
+                        with col3:
+                            # Don't allow dropping the query_log table
+                            if table_name != 'query_log':
+                                if st.button(f"🗑️ Drop table", key=f"drop_{table_name}", type="secondary"):
+                                    # Use session state to track confirmation
+                                    confirm_key = f"confirm_drop_{table_name}"
+                                    if confirm_key not in st.session_state:
+                                        st.session_state[confirm_key] = False
+                                    
+                                    if not st.session_state[confirm_key]:
+                                        st.session_state[confirm_key] = True
+                                        st.rerun()
+                        
+                        # Show schema editing interface if edit was clicked
+                        edit_key = f"edit_schema_{table_name}"
+                        if edit_key in st.session_state and st.session_state[edit_key]:
+                            st.markdown("### ✏️ Edit Table Schema")
+                            st.info("Add descriptions for each column to help candidates understand the data structure.")
+                            
+                            # Initialize or get existing descriptions
+                            desc_key = f"descriptions_{table_name}"
+                            if desc_key not in st.session_state:
+                                st.session_state[desc_key] = {}
+                            
+                            # Get current descriptions including defaults
+                            current_descriptions = st.session_state.get(desc_key, {})
+                            
+                            # Add default descriptions for built-in tables if not already set
+                            table_name_lower = table_name.lower()
+                            if table_name_lower in default_table_descriptions:
+                                default_descriptions = default_table_descriptions[table_name_lower]
+                                # Only add defaults for columns that don't have custom descriptions
+                                for col, desc in default_descriptions.items():
+                                    if col not in current_descriptions:
+                                        current_descriptions[col] = desc
+                                st.session_state[desc_key] = current_descriptions
+                            
+                            # Get current schema
+                            schema = conn.execute(f"DESCRIBE {table_name}").fetchdf()
+                            
+                            # Create input fields for each column description
+                            for _, row in schema.iterrows():
+                                column_name = row['column_name']
+                                column_type = row['column_type']
+                                
+                                current_desc = current_descriptions.get(column_name, "")
+                                new_desc = st.text_input(
+                                    f"**{column_name}** ({column_type})",
+                                    value=current_desc,
+                                    key=f"desc_{table_name}_{column_name}",
+                                    placeholder="Enter column description..."
+                                )
+                                st.session_state[desc_key][column_name] = new_desc
+                            
+                            # Save and Cancel buttons
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if st.button(f"💾 Save descriptions", key=f"save_desc_{table_name}", type="primary"):
+                                    # Store descriptions in a persistent way (using session state for now)
+                                    # In a real implementation, you might want to store this in a database
+                                    
+                                    # Set success message flag and clear edit mode
+                                    success_key = f"desc_saved_{table_name}"
+                                    st.session_state[success_key] = True
+                                    del st.session_state[edit_key]
+                                    st.rerun()
+                            with col2:
+                                if st.button(f"❌ Cancel", key=f"cancel_edit_{table_name}"):
+                                    del st.session_state[edit_key]
+                                    st.rerun()
+                        
+                        # Show success message if descriptions were just saved
+                        success_key = f"desc_saved_{table_name}"
+                        if success_key in st.session_state and st.session_state[success_key]:
+                            st.success(f"✅ Descriptions saved for '{table_name}'!")
+                            # Clear the success flag after showing it
+                            del st.session_state[success_key]
+                        
+                        # Show confirmation dialog if drop was clicked
+                        confirm_key = f"confirm_drop_{table_name}"
+                        if confirm_key in st.session_state and st.session_state[confirm_key]:
+                            st.warning(f"⚠️ Are you sure you want to drop table '{table_name}'? This action cannot be undone.")
+                            col1, col2, col3 = st.columns(3)
+                            with col1:
+                                if st.button(f"✅ Yes, drop it", key=f"confirm_yes_{table_name}", type="primary"):
+                                    try:
+                                        # Try dropping as table first, then as view if that fails
+                                        try:
+                                            conn.execute(f"DROP TABLE {table_name}")
+                                            st.success(f"✅ Table '{table_name}' dropped successfully!")
+                                        except Exception:
+                                            # If table drop fails, try dropping as view
+                                            conn.execute(f"DROP VIEW {table_name}")
+                                            st.success(f"✅ View '{table_name}' dropped successfully!")
+                                        
+                                        # Clear confirmation state and any descriptions
+                                        del st.session_state[confirm_key]
+                                        desc_key = f"descriptions_{table_name}"
+                                        if desc_key in st.session_state:
+                                            del st.session_state[desc_key]
+                                        st.rerun()
+                                    except Exception as e:
+                                        st.error(f"❌ Error dropping object: {str(e)}")
+                            with col2:
+                                if st.button(f"❌ Cancel", key=f"confirm_no_{table_name}"):
+                                    # Clear confirmation state
+                                    del st.session_state[confirm_key]
+                                    st.rerun()
+                            
+                    except Exception as e:
+                        st.error(f"Error accessing table {table_name}: {str(e)}")
+        else:
+            st.info("No tables found in database")
+    except Exception as e:
+        st.error(f"Error listing tables: {str(e)}")
 
 def show_candidate_interface():
     """Display candidate interface for SQL challenges"""
@@ -717,10 +934,8 @@ def show_candidate_interface():
     # Sidebar for navigation and logout
     with st.sidebar:
         st.title("Navigation")
-        page = st.selectbox(
-            "Choose a section:",
-            ["Overview", "SQL Challenges", "Database Schema"]
-        )
+        # Direct to SQL Challenges - no navigation needed
+        page = "SQL Challenges"
         
         st.markdown("---")
         st.markdown(f"**Welcome:** {st.session_state.get('name', 'Candidate')}")
@@ -730,117 +945,124 @@ def show_candidate_interface():
         # End interview button
         handle_logout('🚪 End Interview', 'sidebar')
     
-    # Page handling for candidates
-    if page == "Overview":
-        st.markdown("""
-        ## Welcome to the SQL Proficiency Test
-        
-        This test is designed to evaluate your SQL skills for a Customer Experience Data Engineer role. 
-        You'll work with realistic customer data including:
-        
-        - **Customer profiles** and account information
-        - **Order history** and revenue data
-        - **Support tickets** and resolution metrics
-        - **Product usage** patterns
-        - **Customer satisfaction** surveys
-        
-        
-        ### Instructions:
-        1. Review the database schema
-        2. Complete the SQL challenges
-        3. Aim for clean, efficient, and readable SQL code
-        
-        **Good luck!** 🚀
-        """)
-        
-    elif page == "Database Schema":
-        # Show sample data
-        st.subheader("📊 Sample Data Preview")
-        table_to_show = st.selectbox(
-            "Select table to preview:",
-            ['customers', 'orders', 'support_tickets', 'product_usage', 'customer_satisfaction']
-        )
-        
-        sample_data = conn.execute(f"SELECT * FROM {table_to_show} LIMIT 5").fetchdf()
-        st.dataframe(sample_data)
-        
-        st.info(f"**{table_to_show}** has {conn.execute(f'SELECT COUNT(*) FROM {table_to_show}').fetchone()[0]} total rows")
-        
-    elif page == "SQL Challenges":
+    # Direct to SQL Challenges
+    if page == "SQL Challenges":
         st.subheader("🎯 SQL Challenges")
         
         # Database Schema Reference (full width)
         st.subheader("📋 Database Schema Reference")
         
-        # Show schema in an expandable format
-        schema_info = {
-            'customers': {
-                'description': 'Customer information and account details',
-                'columns': [
-                    'customer_id (INTEGER): Unique customer identifier',
-                    'email (VARCHAR): Customer email address',
-                    'signup_date (DATE): Date customer signed up',
-                    'subscription_tier (VARCHAR): basic, pro, or enterprise',
-                    'company_size (VARCHAR): Company size category',
-                    'industry (VARCHAR): Customer industry',
-                    'is_active (BOOLEAN): Whether customer is currently active'
-                ]
-            },
-            'orders': {
-                'description': 'Customer purchase history',
-                'columns': [
-                    'order_id (INTEGER): Unique order identifier',
-                    'customer_id (INTEGER): Foreign key to customers',
-                    'order_date (DATE): Date order was placed',
-                    'amount (DECIMAL): Order amount in USD',
-                    'status (VARCHAR): completed, cancelled, or refunded',
-                    'product_category (VARCHAR): Type of product purchased'
-                ]
-            },
-            'support_tickets': {
-                'description': 'Customer support interactions',
-                'columns': [
-                    'ticket_id (INTEGER): Unique ticket identifier',
-                    'customer_id (INTEGER): Foreign key to customers',
-                    'created_date (DATETIME): When ticket was created',
-                    'category (VARCHAR): technical, billing, feature_request, or general',
-                    'priority (VARCHAR): low, medium, or high',
-                    'status (VARCHAR): open, in_progress, resolved, or closed',
-                    'resolution_time_hours (INTEGER): Time to resolve (NULL if unresolved)',
-                    'satisfaction_score (INTEGER): 1-5 rating (NULL if not provided)'
-                ]
-            },
-            'product_usage': {
-                'description': 'Daily product usage metrics',
-                'columns': [
-                    'customer_id (INTEGER): Foreign key to customers',
-                    'usage_date (DATE): Date of usage',
-                    'sessions (INTEGER): Number of user sessions',
-                    'page_views (INTEGER): Number of page views',
-                    'time_spent_minutes (INTEGER): Total time spent in product',
-                    'feature_used (VARCHAR): Primary feature used that day'
-                ]
-            },
-            'customer_satisfaction': {
-                'description': 'Customer satisfaction survey responses',
-                'columns': [
-                    'survey_id (INTEGER): Unique survey response identifier',
-                    'customer_id (INTEGER): Foreign key to customers',
-                    'survey_date (DATE): Date survey was completed',
-                    'nps_score (INTEGER): Net Promoter Score (0-10)',
-                    'product_satisfaction (INTEGER): Product satisfaction (1-5)',
-                    'support_satisfaction (INTEGER): Support satisfaction (1-5)',
-                    'likelihood_to_recommend (INTEGER): Likelihood to recommend (1-5)',
-                    'overall_satisfaction (INTEGER): Overall satisfaction (1-5)'
-                ]
-            }
-        }
-        
-        for table_name, table_info in schema_info.items():
-            with st.expander(f"**{table_name.upper()}**", expanded=False):
-                st.caption(table_info['description'])
-                for column in table_info['columns']:
-                    st.text(f"• {column}")
+        # Get all available tables dynamically
+        try:
+            existing_tables = conn.execute("SHOW TABLES").fetchall()
+            if existing_tables:
+                table_names = [table[0] for table in existing_tables if table[0] != 'query_log']
+                
+                for table_name in table_names:
+                    try:
+                        # Get table schema
+                        schema = conn.execute(f"DESCRIBE {table_name}").fetchdf()
+                        row_count = conn.execute(f"SELECT COUNT(*) FROM {table_name}").fetchone()[0]
+                        
+                        with st.expander(f"**{table_name.upper()}** ({row_count} rows)", expanded=False):
+                            st.markdown("**Schema:**")
+                            
+                            # Check if there are saved descriptions for this table
+                            desc_key = f"descriptions_{table_name}"
+                            descriptions = st.session_state.get(desc_key, {})
+                            
+                            # Add default descriptions for built-in tables (same as interviewer interface)
+                            default_table_descriptions = {
+                                'query_log': {
+                                    'log_id': 'Unique identifier for each query submission',
+                                    'timestamp': 'When the query was submitted',
+                                    'challenge_id': 'Identifier of the SQL challenge',
+                                    'challenge_title': 'Title of the SQL challenge',
+                                    'query_text': 'The SQL query submitted by candidate',
+                                    'execution_success': 'Whether the query executed without errors',
+                                    'error_message': 'Error details if query failed',
+                                    'result_rows': 'Number of rows returned by the query',
+                                    'validation_passed': 'Whether query result matches expected structure',
+                                    'points_earned': 'Points awarded for the query',
+                                    'session_id': 'Candidate session identifier'
+                                },
+                                'customers': {
+                                    'customer_id': 'Unique customer identifier',
+                                    'email': 'Customer email address',
+                                    'signup_date': 'Date customer signed up',
+                                    'subscription_tier': 'basic, pro, or enterprise',
+                                    'company_size': 'Company size category',
+                                    'industry': 'Customer industry',
+                                    'is_active': 'Whether customer is currently active'
+                                },
+                                'orders': {
+                                    'order_id': 'Unique order identifier',
+                                    'customer_id': 'Foreign key to customers',
+                                    'order_date': 'Date order was placed',
+                                    'amount': 'Order amount in USD',
+                                    'status': 'completed, cancelled, or refunded',
+                                    'product_category': 'Type of product purchased'
+                                },
+                                'support_tickets': {
+                                    'ticket_id': 'Unique ticket identifier',
+                                    'customer_id': 'Foreign key to customers',
+                                    'created_date': 'When ticket was created',
+                                    'category': 'technical, billing, feature_request, or general',
+                                    'priority': 'low, medium, or high',
+                                    'status': 'open, in_progress, resolved, or closed',
+                                    'resolution_time_hours': 'Time to resolve (NULL if unresolved)',
+                                    'satisfaction_score': '1-5 rating (NULL if not provided)'
+                                },
+                                'product_usage': {
+                                    'customer_id': 'Foreign key to customers',
+                                    'usage_date': 'Date of usage',
+                                    'sessions': 'Number of user sessions',
+                                    'page_views': 'Number of page views',
+                                    'time_spent_minutes': 'Total time spent in product',
+                                    'feature_used': 'Primary feature used that day'
+                                },
+                                'customer_satisfaction': {
+                                    'survey_id': 'Unique survey response identifier',
+                                    'customer_id': 'Foreign key to customers',
+                                    'survey_date': 'Date survey was completed',
+                                    'nps_score': 'Net Promoter Score (0-10)',
+                                    'product_satisfaction': 'Product satisfaction (1-5)',
+                                    'support_satisfaction': 'Support satisfaction (1-5)',
+                                    'likelihood_to_recommend': 'Likelihood to recommend (1-5)',
+                                    'overall_satisfaction': 'Overall satisfaction (1-5)'
+                                }
+                            }
+                            
+                            # Get default descriptions for this table if available (case-insensitive)
+                            table_name_lower = table_name.lower()
+                            if table_name_lower in default_table_descriptions:
+                                default_descriptions = default_table_descriptions[table_name_lower]
+                                # Merge with any custom descriptions, giving priority to custom ones
+                                descriptions = {**default_descriptions, **descriptions}
+                            
+                            for _, row in schema.iterrows():
+                                column_name = row['column_name']
+                                column_type = row['column_type']
+                                nullable = "NULL" if row['null'] == 'YES' else "NOT NULL"
+                                
+                                # Show column with description if available
+                                if column_name in descriptions and descriptions[column_name].strip():
+                                    st.text(f"• {column_name} ({column_type}): {descriptions[column_name]}")
+                                else:
+                                    st.text(f"• {column_name} ({column_type}) - {nullable}")
+                            
+                            # Show sample data
+                            st.markdown("**Sample Data:**")
+                            sample_data = conn.execute(f"SELECT * FROM {table_name} LIMIT 3").fetchdf()
+                            st.dataframe(sample_data, use_container_width=True)
+                            
+                    except Exception as e:
+                        with st.expander(f"**{table_name.upper()}**", expanded=False):
+                            st.error(f"Error accessing table: {str(e)}")
+            else:
+                st.info("No tables found in database. Upload data through the interviewer interface first.")
+        except Exception as e:
+            st.error(f"Error retrieving database schema: {str(e)}")
         
         # SQL Query Editor (full width, below schema)
         st.markdown("### Write your SQL query:")
